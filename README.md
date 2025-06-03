@@ -72,7 +72,7 @@ The API will be available at `http://localhost:5000`
 
 ### 4. Setup Frontend (Next.js)
 ```bash
-cd ../itunes-search-ui
+cd itunes-search-ui
 
 # Install dependencies
 npm install
