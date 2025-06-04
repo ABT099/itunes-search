@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Image from "next/image";
 
 type Podcast = {
@@ -21,79 +21,117 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [inputValue, setInputValue] = useState<string>("");
 
-  // Debounced search function
-  const debouncedSearch = useCallback((term: string) => {
-    const timeoutId = setTimeout(() => {
-      if (term.trim().length > 0) {
-        setSearchTerm(term);
-      } else {
-        setPodcasts([]);
-        setSearchTerm("");
-      }
-    }, 300);
+  const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-    return timeoutId;
-  }, []);
+  // Memoized search function
+  const performSearch = useCallback(async (term: string) => {
+    if (!term.trim()) {
+      setPodcasts([]);
+      setIsLoading(false);
+      return;
+    }
 
-  // Handle input change
-  const handleSearchInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setInputValue(value);
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
 
-    const timeoutId = debouncedSearch(value);
-    return () => clearTimeout(timeoutId);
-  };
-
-  // Search function
-  const search = async (term: string) => {
-    if (!term.trim()) return;
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     setIsLoading(true);
 
     try {
       const response = await fetch(
-        `https://itunes-search-env.eba-2acf9ire.us-east-1.elasticbeanstalk.com/search?q=${encodeURIComponent(term)}`,
+        `https://towait.net/search?q=${encodeURIComponent(term)}`,
         {
           method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
         },
       );
 
       if (response.ok) {
         const data = await response.json();
-        setPodcasts(data);
+        if (!controller.signal.aborted) {
+          // Only update if not aborted
+          setPodcasts(data);
+        }
       } else {
-        console.error("Search failed:", response.statusText);
-        setPodcasts([]);
+        if (!controller.signal.aborted) {
+          console.error("Search failed:", response.statusText);
+          setPodcasts([]);
+        }
       }
-    } catch (error) {
-      console.error("Search error:", error);
-      setPodcasts([]);
+    } catch (error: any) {
+      if (error.name === "AbortError") {
+        console.log("Fetch aborted for term:", term);
+      } else {
+        if (!controller.signal.aborted) {
+          console.error("Search error:", error);
+          setPodcasts([]);
+        }
+      }
     } finally {
-      setIsLoading(false);
+      // Only set isLoading to false if this controller is still the current one
+      if (abortControllerRef.current === controller) {
+        setIsLoading(false);
+      }
     }
+  }, []);
+
+  // Effect to trigger search when debounced searchTerm changes
+  useEffect(() => {
+    const trimmedSearchTerm = searchTerm.trim();
+    if (trimmedSearchTerm) {
+      performSearch(trimmedSearchTerm);
+    } else {
+      // If searchTerm is empty, clear podcasts, set loading to false, and abort any ongoing search.
+      setPodcasts([]);
+      setIsLoading(false);
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+    }
+  }, [searchTerm, performSearch]);
+
+  // Handle input change: update inputValue and debounce setSearchTerm
+  const handleSearchInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setInputValue(value);
+
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current);
+    }
+
+    debounceTimeoutRef.current = setTimeout(() => {
+      setSearchTerm(value);
+    }, 300);
   };
 
-  // Effect to trigger search when searchTerm changes
+  // Cleanup timeouts and abort controllers on component unmount
   useEffect(() => {
-    if (searchTerm) {
-      search(searchTerm);
-    }
-  }, [searchTerm]);
+    return () => {
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
 
-  // Helper function to get the best image URL
   const getBestImageUrl = (podcast: Podcast): string => {
     return (
       podcast.artworkUrl600 ||
       podcast.artworkUrl100 ||
       podcast.artworkUrl60 ||
-      podcast.artworkUrl30
+      podcast.artworkUrl30 ||
+      ""
     );
   };
 
-  // Handle podcast click
   const handlePodcastClick = (trackViewUrl: string) => {
     window.open(trackViewUrl, "_blank", "noopener,noreferrer");
   };
@@ -119,10 +157,10 @@ export default function Home() {
           </div>
         </div>
 
-        {podcasts.length > 0 && (
+        {podcasts.length > 0 && searchTerm.trim() && (
           <div className="mt-8 pb-2">
             <h1 className="text-lg md:text-xl lg:text-2xl font-semibold text-white">
-              Top podcasts for {searchTerm}
+              Top podcasts for {searchTerm.trim()}
             </h1>
           </div>
         )}
@@ -139,7 +177,7 @@ export default function Home() {
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2 md:gap-3">
             {podcasts.map((podcast: Podcast) => (
               <div
-                key={podcast.trackId}
+                key={podcast.trackId} // Using trackId as key
                 className="cursor-pointer group"
                 onClick={() => handlePodcastClick(podcast.trackViewUrl)}
               >
@@ -156,8 +194,6 @@ export default function Home() {
                       priority={false}
                     />
                   </div>
-
-                  {/* Podcast Info */}
                   <div className="flex-1 flex flex-col">
                     <h3 className="text-white font-medium text-xs md:text-sm line-clamp-2 mb-0.5 group-hover:underline">
                       {podcast.trackName}
@@ -174,7 +210,7 @@ export default function Home() {
           <div className="text-center text-gray-400 mt-8">
             <p className="text-base">
               {inputValue.trim()
-                ? "No results found"
+                ? `No results found for "${inputValue.trim()}"`
                 : "Start typing to search for podcasts, music, and apps"}
             </p>
           </div>
