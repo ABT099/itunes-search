@@ -23,7 +23,7 @@ itunes-search/
 - **TypeScript**: Type safety
 
 ### Frontend (Next.js)
-- **Next.js 14**: React framework with App Router
+- **Next.js**: React framework with App Router
 - **TypeScript**: Type safety
 - **Tailwind CSS**: Styling
 
