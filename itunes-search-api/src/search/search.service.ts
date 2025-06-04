@@ -24,17 +24,19 @@ export class SearchService extends PrismaClient implements OnModuleInit {
       await this.httpService.axiosRef.get<ItunesSearchResponse>(url);
     const data = response.data;
 
-    const podcastData = data.results.map((result) => ({
-      trackId: result.trackId,
-      artistName: result.artistName,
-      trackName: result.trackName,
-      trackViewUrl: result.trackViewUrl,
-      artworkUrl30: result.artworkUrl30,
-      artworkUrl60: result.artworkUrl60,
-      artworkUrl100: result.artworkUrl100,
-      artworkUrl600: result.artworkUrl600,
-      releaseDate: new Date(result.releaseDate),
-    }));
+    const podcastData = data.results.map(
+      (result) =>
+        ({
+          trackId: result.trackId,
+          artistName: result.artistName,
+          trackName: result.trackName,
+          trackViewUrl: result.trackViewUrl,
+          artworkUrl30: result.artworkUrl30,
+          artworkUrl60: result.artworkUrl60,
+          artworkUrl100: result.artworkUrl100,
+          artworkUrl600: result.artworkUrl600,
+        }) as Podcast,
+    );
 
     try {
       await this.podcast.createMany({
