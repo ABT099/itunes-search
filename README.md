@@ -2,6 +2,8 @@
 
 A full-stack application for searching iTunes podcasts. Built with NestJS backend and Next.js frontend.
 
+You can demo the project at [https://itunes-search-demo.vercel.app/](https://itunes-search-six.vercel.app/)
+
 ## 🏗️ Architecture
 
 ```

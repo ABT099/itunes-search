@@ -1,16 +1,22 @@
 import { HttpService } from '@nestjs/axios';
-import { Injectable } from '@nestjs/common';
-import { Podcast } from 'generated/prisma';
+import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Podcast, PrismaClient } from 'generated/prisma';
 import { log } from 'node:console';
-import { DatabaseService } from 'src/database/database.service';
 import { ItunesSearchResponse } from './interfaces/itunesSearchResults';
 
 @Injectable()
-export class SearchService {
-  constructor(
-    private httpService: HttpService,
-    private db: DatabaseService,
-  ) {}
+export class SearchService extends PrismaClient implements OnModuleInit {
+  constructor(private httpService: HttpService) {
+    super();
+  }
+
+  async onModuleInit() {
+    await this.$connect();
+  }
+
+  async onModuleDestroy() {
+    await this.$disconnect();
+  }
 
   async search(query: string): Promise<Podcast[]> {
     const url = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=podcast`;
@@ -31,13 +37,13 @@ export class SearchService {
     }));
 
     try {
-      await this.db.podcast.createMany({
+      await this.podcast.createMany({
         data: podcastData,
         skipDuplicates: true,
       });
 
       const trackIds = podcastData.map((podcast) => podcast.trackId);
-      const insertedPodcasts = await this.db.podcast.findMany({
+      const insertedPodcasts = await this.podcast.findMany({
         where: {
           trackId: {
             in: trackIds,
