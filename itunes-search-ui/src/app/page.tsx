@@ -206,7 +206,7 @@ export default function Home() {
             <p className="text-base">
               {inputValue.trim()
                 ? `No results found for "${inputValue.trim()}"`
-                : "Start typing to search for podcasts, music, and apps"}
+                : "Start typing to search for podcasts."}
             </p>
           </div>
         )}
