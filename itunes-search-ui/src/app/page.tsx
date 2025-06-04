@@ -52,7 +52,7 @@ export default function Home() {
 
     try {
       const response = await fetch(
-        `http://itunes-search-env.eba-2acf9ire.us-east-1.elasticbeanstalk.com//search?q=${encodeURIComponent(term)}`,
+        `https://itunes-search-env.eba-2acf9ire.us-east-1.elasticbeanstalk.com/search?q=${encodeURIComponent(term)}`,
         {
           method: "GET",
           headers: {

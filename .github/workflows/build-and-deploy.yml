@@ -1,11 +1,18 @@
-name: Deploy to AWS Elastic Beanstalk
-
 on:
   workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ./itunes-search-api
+
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DIRECT_URL: ${{ secrets.DIRECT_URL }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -14,42 +21,26 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: "npm"
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Generate Prisma client
         run: npx prisma generate
 
       - name: Build app
-        run: npm run build
+        run: npx nest build
 
-      - name: Create deployment package
+      - name: Install EB CLI
         run: |
-          mkdir deploy
-          cp -r dist node_modules prisma package*.json deploy/
-          echo "web: node dist/main.js" > deploy/Procfile
-
-          mkdir -p deploy/.ebextensions
-          cat > deploy/.ebextensions/prisma.config << 'EOF'
-          container_commands:
-            01_prisma_generate:
-              command: "npx prisma generate"
-            02_prisma_migrate:
-              command: "npx prisma migrate deploy"
-              leader_only: true
-          EOF
-
-          cd deploy && zip -r ../app.zip .
+          pip install --upgrade --user awsebcli
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Deploy to Elastic Beanstalk
-        uses: einaregilsson/beanstalk-deploy@v22
-        with:
-          aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          application_name: ${{ secrets.EB_APPLICATION_NAME }}
-          environment_name: ${{ secrets.EB_ENVIRONMENT_NAME }}
-          region: ${{ secrets.AWS_REGION }}
-          version_label: ${{ github.sha }}
-          deployment_package: app.zip
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          eb init ${{ secrets.EB_APPLICATION_NAME }} --region ${{ secrets.AWS_REGION }} --platform "Node.js" --quiet
+          eb deploy ${{ secrets.EB_ENVIRONMENT_NAME }} --staged --label ${{ github.sha }}
