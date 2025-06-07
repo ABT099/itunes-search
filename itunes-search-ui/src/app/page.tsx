@@ -1,76 +1,14 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
+import { Podcast, FilterState } from "./types";
+import { MAX_SEARCH_HISTORY, containerVariants } from "./constants";
+import { PodcastCard } from "./components/PodcastCard";
+import { PodcastCardSkeleton } from "./components/PodcastCardSkeleton";
+import { FilterBar } from "./components/FilterBar";
+import { SearchHistory } from "./components/SearchHistory";
 
-type Podcast = {
-  id: string;
-  trackId: number;
-  artistName: string;
-  trackName: string;
-  trackViewUrl: string;
-  artworkUrl30: string;
-  artworkUrl60: string;
-  artworkUrl100: string;
-  artworkUrl600: string;
-  primaryGenre?: string;
-  trackCount?: number;
-  explicitness?: string;
-};
-
-const Badge = ({ text, className }: { text: string; className?: string }) => {
-  if (!text) return null;
-  return (
-    <motion.span
-      initial={{ scale: 0.8, opacity: 0 }}
-      animate={{ scale: 1, opacity: 1 }}
-      className={`inline-block bg-gray-700/80 backdrop-blur-sm text-gray-300 text-[10px] font-semibold mr-2 px-2.5 py-0.5 rounded-full ${className}`}
-    >
-      {text}
-    </motion.span>
-  );
-};
-
-const PodcastCardSkeleton = () => (
-  <div className="flex flex-col h-full p-3 bg-gray-800/50 backdrop-blur-sm rounded-lg animate-pulse border border-gray-700/50">
-    <div className="aspect-square mb-3 rounded-md bg-gray-700/50"></div>
-    <div className="h-4 bg-gray-700/50 rounded w-3/4 mb-2"></div>
-    <div className="h-3 bg-gray-700/50 rounded w-1/2"></div>
-  </div>
-);
-
-const containerVariants = {
-  hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: { 
-      staggerChildren: 0.05,
-      delayChildren: 0.1
-    },
-  },
-};
-
-const cardVariants = {
-  hidden: { y: 20, opacity: 0 },
-  visible: { 
-    y: 0, 
-    opacity: 1,
-    transition: {
-      type: "spring",
-      stiffness: 100,
-      damping: 15
-    }
-  },
-  hover: {
-    y: -5,
-    transition: {
-      type: "spring",
-      stiffness: 400,
-      damping: 10
-    }
-  }
-};
 
 export default function Home() {
   const [searchResult, setSearchResult] = useState<Podcast[]>([]);
@@ -79,9 +17,42 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [inputValue, setInputValue] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+  const [filters, setFilters] = useState<FilterState>({
+    genre: null,
+    explicitness: null,
+  });
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
 
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    const savedHistory = localStorage.getItem("searchHistory");
+    if (savedHistory) {
+      setSearchHistory(JSON.parse(savedHistory));
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("searchHistory", JSON.stringify(searchHistory));
+  }, [searchHistory]);
+
+  const addToSearchHistory = (term: string) => {
+    if (!term.trim()) return;
+
+    setSearchHistory((prev) => {
+      const filtered = prev.filter(
+        (t) => t.toLowerCase() !== term.toLowerCase(),
+      );
+      return [term, ...filtered].slice(0, MAX_SEARCH_HISTORY);
+    });
+  };
+
+  const clearSearchHistory = () => {
+    setSearchHistory([]);
+    localStorage.removeItem("searchHistory");
+  };
 
   const performSearch = useCallback(async (term: string) => {
     if (!term.trim()) {
@@ -143,7 +114,6 @@ export default function Home() {
       if (!inputValue && searchResult.length === 0) {
         setIsLoading(true);
       }
-
       try {
         const response = await fetch(`https://towait.net/search?q=trending`);
         if (response.ok) {
@@ -169,12 +139,29 @@ export default function Home() {
   const handleSearchInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setInputValue(value);
+    setShowHistory(true);
     if (debounceTimeoutRef.current) {
       clearTimeout(debounceTimeoutRef.current);
     }
     debounceTimeoutRef.current = setTimeout(() => {
       setSearchTerm(value);
     }, 300);
+  };
+
+  const handleSearchComplete = (term: string) => {
+    const trimmedTerm = term.trim();
+    if (trimmedTerm) {
+      setInputValue(trimmedTerm);
+      setSearchTerm(trimmedTerm);
+      addToSearchHistory(trimmedTerm);
+    }
+    setShowHistory(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      handleSearchComplete(inputValue);
+    }
   };
 
   useEffect(() => {
@@ -184,22 +171,61 @@ export default function Home() {
     };
   }, []);
 
-  const getBestImageUrl = (podcast: Podcast): string => {
-    return podcast.artworkUrl600 || podcast.artworkUrl100 || "";
-  };
-
   const handleItemClick = (url: string) => {
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
-  const renderPodcastGrid = (podcastsToRender: Podcast[], title: string) => (
-    <motion.div 
+  const getAvailableGenres = (podcasts: Podcast[]): string[] => {
+    const genres = new Set(
+      podcasts
+        .map((p) => p.primaryGenre)
+        .filter((genre): genre is string => genre !== undefined),
+    );
+    return Array.from(genres).sort();
+  };
+
+  const filterPodcasts = (podcasts: Podcast[]): Podcast[] => {
+    if (!podcasts.length) return [];
+    return podcasts.filter((podcast) => {
+      if (!filters.genre && !filters.explicitness) return true;
+      if (
+        filters.genre &&
+        podcast.primaryGenre?.toLowerCase() !== filters.genre.toLowerCase()
+      ) {
+        return false;
+      }
+      if (
+        filters.explicitness &&
+        podcast.explicitness?.toLowerCase() !==
+          filters.explicitness.toLowerCase()
+      ) {
+        return false;
+      }
+      return true;
+    });
+  };
+
+  useEffect(() => {
+    if (searchTerm.trim()) {
+      setFilters({ genre: null, explicitness: null });
+    }
+  }, [searchTerm]);
+
+  const currentResult = searchTerm.trim() ? searchResult : trendingResult;
+  const filteredResults = filterPodcasts(currentResult);
+  const hasResults = filteredResults.length > 0;
+
+  const renderPodcastGrid = (
+    podcastsToRender: Podcast[],
+    title: string,
+  ) => (
+    <motion.div
       className="mb-8"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
     >
-      <motion.h1 
+      <motion.h1
         className="text-lg md:text-xl lg:text-2xl font-semibold text-white mb-4 flex items-center"
         initial={{ opacity: 0, x: -20 }}
         animate={{ opacity: 1, x: 0 }}
@@ -211,61 +237,23 @@ export default function Home() {
         {title}
       </motion.h1>
       <motion.div
-        className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4 md:gap-6"
+        className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-6"
         variants={containerVariants}
         initial="hidden"
         animate="visible"
       >
         <AnimatePresence>
           {podcastsToRender.map((podcast) => (
-            <motion.div
+            <PodcastCard
               key={podcast.trackId}
-              variants={cardVariants}
-              whileHover="hover"
-              className="cursor-pointer group"
-              onClick={() => handleItemClick(podcast.trackViewUrl)}
-              layout
-            >
-              <div className="flex flex-col h-full bg-gray-800/50 backdrop-blur-sm rounded-lg overflow-hidden p-3 transition-all duration-300 ease-in-out hover:bg-gray-700/50 border border-gray-700/50 hover:border-gray-600/50 hover:shadow-2xl hover:shadow-blue-500/10">
-                <div className="aspect-square mb-3 overflow-hidden rounded-md bg-gray-700/50 relative group-hover:ring-2 group-hover:ring-blue-500/50 transition-all duration-300">
-                  <Image
-                    src={getBestImageUrl(podcast)}
-                    alt={podcast.trackName}
-                    fill
-                    sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 20vw"
-                    className="object-cover transition-transform duration-500 group-hover:scale-110"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                </div>
-                <div className="flex-1 flex flex-col">
-                  <div className="mb-1.5 flex items-center flex-wrap">
-                    {podcast.primaryGenre && <Badge text={podcast.primaryGenre} />}
-                    {podcast.explicitness === 'explicit' && (
-                      <Badge text="Explicit" className="bg-red-900/80 text-red-300"/>
-                    )}
-                  </div>
-                  <h3 className="text-white font-semibold text-sm line-clamp-2 mb-1 group-hover:text-blue-400 transition-colors duration-300">
-                    {podcast.trackName}
-                  </h3>
-                  <p className="text-gray-400 text-xs line-clamp-1 mt-auto group-hover:text-gray-300 transition-colors duration-300">
-                    {podcast.artistName}
-                    {podcast.trackCount && (
-                      <span className="text-gray-500 group-hover:text-gray-400">
-                        {` • ${podcast.trackCount} Ep.`}
-                      </span>
-                    )}
-                  </p>
-                </div>
-              </div>
-            </motion.div>
+              podcast={podcast}
+              onClick={handleItemClick}
+            />
           ))}
         </AnimatePresence>
       </motion.div>
     </motion.div>
   );
-
-  const currentResult = searchTerm.trim() ? searchResult : trendingResult;
-  const hasResults = currentResult.length > 0;
 
   return (
     <div className="w-full min-h-screen bg-gradient-to-br from-gray-900 via-gray-900 to-gray-800 text-white">
@@ -279,38 +267,64 @@ export default function Home() {
               value={inputValue}
               className="border border-gray-600/50 bg-gray-800/50 focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 rounded-xl px-4 py-3 w-full text-white placeholder-gray-400 transition-all duration-300"
               onChange={handleSearchInput}
+              onFocus={() => setShowHistory(true)}
+              onBlur={() => {
+                setTimeout(() => {
+                  addToSearchHistory(inputValue);
+                  setShowHistory(false);
+                }, 150);
+              }}
+              onKeyDown={handleKeyDown}
             />
             {isLoading && (
               <div className="absolute right-4 top-1/2 -translate-y-1/2">
                 <div className="w-5 h-5 border-2 border-blue-400/20 border-t-blue-400 rounded-full animate-spin" />
               </div>
             )}
+            {showHistory && (
+              <SearchHistory
+                searches={searchHistory}
+                onSelect={handleSearchComplete}
+                onClear={clearSearchHistory}
+              />
+            )}
           </div>
         </div>
       </div>
 
       {/* Content */}
-      <div className="max-w-7xl mx-auto p-4 md:p-5 lg:p-6">
+      <div className="max-w-7xl mx-auto py-4 md:py-5 lg:py-6">
+        <FilterBar
+          filters={filters}
+          onFilterChange={setFilters}
+          availableGenres={getAvailableGenres(currentResult)}
+        />
         <AnimatePresence mode="wait">
           {isLoading ? (
-            <motion.div 
+            <motion.div
               key="loading"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4 md:gap-6"
+              className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-6"
             >
-              {Array(12).fill(0).map((_, index) => <PodcastCardSkeleton key={index} />)}
+              {Array(12)
+                .fill(0)
+                .map((_, index) => (
+                  <PodcastCardSkeleton key={index} />
+                ))}
             </motion.div>
           ) : error ? (
-            <motion.div 
+            <motion.div
               key="error"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
               className="text-center text-red-400 mt-12"
             >
-              <p className="text-lg font-semibold">Oops! Something went wrong.</p>
+              <p className="text-lg font-semibold">
+                Oops! Something went wrong.
+              </p>
               <p className="text-base">{error}</p>
             </motion.div>
           ) : hasResults ? (
@@ -321,12 +335,14 @@ export default function Home() {
               exit={{ opacity: 0 }}
             >
               {renderPodcastGrid(
-                currentResult,
-                searchTerm.trim() ? `Podcasts for "${searchTerm.trim()}"` : "Trending Podcasts"
+                filteredResults,
+                searchTerm.trim()
+                  ? `Podcasts for "${searchTerm.trim()}"`
+                  : "Trending Podcasts",
               )}
             </motion.div>
           ) : (
-            <motion.div 
+            <motion.div
               key="empty"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
