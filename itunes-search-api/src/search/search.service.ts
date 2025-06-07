@@ -27,7 +27,7 @@ export class SearchService extends PrismaClient implements OnModuleInit {
     const podcastData = data.results.map(
       (result) =>
         ({
-          trackId: result.trackId,
+          trackId: result.trackId.toString(),
           artistName: result.artistName,
           trackName: result.trackName,
           trackViewUrl: result.trackViewUrl,
@@ -35,6 +35,11 @@ export class SearchService extends PrismaClient implements OnModuleInit {
           artworkUrl60: result.artworkUrl60,
           artworkUrl100: result.artworkUrl100,
           artworkUrl600: result.artworkUrl600,
+          primaryGenre: result.primaryGenreName,
+          genres: result.genres,
+          explicitness: result.trackExplicitness,
+          feedUrl: result.feedUrl,
+          trackCount: result.trackCount,
         }) as Podcast,
     );
 

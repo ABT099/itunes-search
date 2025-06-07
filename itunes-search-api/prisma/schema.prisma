@@ -17,8 +17,8 @@ datasource db {
 }
 
 model Podcast {
-  id            String @id @default(uuid())
-  trackId       Int    @unique
+  id            String   @id @default(uuid())
+  trackId       String      @unique
   artistName    String
   trackName     String
   trackViewUrl  String
@@ -26,4 +26,9 @@ model Podcast {
   artworkUrl60  String
   artworkUrl100 String
   artworkUrl600 String
+  explicitness  String
+  feedUrl       String
+  genres        String[]
+  primaryGenre  String
+  trackCount    Int?
 }
